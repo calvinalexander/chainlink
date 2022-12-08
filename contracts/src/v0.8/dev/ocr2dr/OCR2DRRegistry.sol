@@ -109,6 +109,9 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
   );
 
   struct Config {
+    // Registry usage killswitch
+    bool active;
+    // Maxiumum amount of gas that can be given to a request's client callback
     uint32 maxGasLimit;
     // Reentrancy protection.
     bool reentrancyLock;
@@ -278,6 +281,7 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
     override
     validateAuthorizedSender
     nonReentrant
+    onlyActiveRegistry
     returns (bytes32)
   {
     // Input validation using the subscription storage.
@@ -388,7 +392,7 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
     uint8 signerCount,
     uint256 reportValidationGas,
     uint256 initialGas
-  ) external override validateAuthorizedSender nonReentrant returns (bool success) {
+  ) external override validateAuthorizedSender nonReentrant onlyActiveRegistry returns (bool success) {
     Commitment memory commitment = s_requestCommitments[requestId];
     if (commitment.don == address(0)) {
       revert IncorrectRequestID();
@@ -496,7 +500,7 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
    * @param recipient where to send the funds
    * @param amount amount to withdraw
    */
-  function oracleWithdraw(address recipient, uint96 amount) external nonReentrant {
+  function oracleWithdraw(address recipient, uint96 amount) external nonReentrant onlyActiveRegistry {
     if (amount == 0) {
       amount = s_withdrawableTokens[msg.sender];
     }
@@ -514,7 +518,7 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
     address, /* sender */
     uint256 amount,
     bytes calldata data
-  ) external override nonReentrant {
+  ) external override nonReentrant onlyActiveRegistry {
     if (msg.sender != address(LINK)) {
       revert OnlyCallableFromLink();
     }
@@ -573,7 +577,7 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
    * @dev    amount,
    * @dev    abi.encode(subscriptionId));
    */
-  function createSubscription() external nonReentrant returns (uint64) {
+  function createSubscription() external nonReentrant onlyActiveRegistry returns (uint64) {
     s_currentsubscriptionId++;
     uint64 currentsubscriptionId = s_currentsubscriptionId;
     address[] memory consumers = new address[](0);
@@ -597,6 +601,7 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
     external
     onlySubOwner(subscriptionId)
     nonReentrant
+    onlyActiveRegistry
   {
     // Proposing to address(0) would never be claimable so don't need to check.
     if (s_subscriptionConfigs[subscriptionId].requestedOwner != newOwner) {
@@ -611,7 +616,7 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
    * @dev will revert if original owner of subscriptionId has
    * not requested that msg.sender become the new owner.
    */
-  function acceptSubscriptionOwnerTransfer(uint64 subscriptionId) external nonReentrant {
+  function acceptSubscriptionOwnerTransfer(uint64 subscriptionId) external nonReentrant onlyActiveRegistry {
     if (s_subscriptionConfigs[subscriptionId].owner == address(0)) {
       revert InvalidSubscription();
     }
@@ -629,7 +634,12 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
    * @param subscriptionId - ID of the subscription
    * @param consumer - Consumer to remove from the subscription
    */
-  function removeConsumer(uint64 subscriptionId, address consumer) external onlySubOwner(subscriptionId) nonReentrant {
+  function removeConsumer(uint64 subscriptionId, address consumer)
+    external
+    onlySubOwner(subscriptionId)
+    nonReentrant
+    onlyActiveRegistry
+  {
     if (s_consumers[consumer][subscriptionId] == 0) {
       revert InvalidConsumer(subscriptionId, consumer);
     }
@@ -655,7 +665,12 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
    * @param subscriptionId - ID of the subscription
    * @param consumer - New consumer which can use the subscription
    */
-  function addConsumer(uint64 subscriptionId, address consumer) external onlySubOwner(subscriptionId) nonReentrant {
+  function addConsumer(uint64 subscriptionId, address consumer)
+    external
+    onlySubOwner(subscriptionId)
+    nonReentrant
+    onlyActiveRegistry
+  {
     // Already maxed, cannot add any more consumers.
     if (s_subscriptionConfigs[subscriptionId].consumers.length == MAX_CONSUMERS) {
       revert TooManyConsumers();
@@ -677,7 +692,12 @@ contract OCR2DRRegistry is ConfirmedOwner, OCR2DRRegistryInterface, ERC677Receiv
    * @param subscriptionId - ID of the subscription
    * @param to - Where to send the remaining LINK to
    */
-  function cancelSubscription(uint64 subscriptionId, address to) external onlySubOwner(subscriptionId) nonReentrant {
+  function cancelSubscription(uint64 subscriptionId, address to)
+    external
+    onlySubOwner(subscriptionId)
+    nonReentrant
+    onlyActiveRegistry
+  {
     if (pendingRequestExists(subscriptionId)) {
       revert PendingRequestExists();
     }
