@@ -171,14 +171,14 @@ func (r *EvmRegistry) Start(ctx context.Context) error {
 
 		// start polling logs on an interval
 		{
-			go func(ctx context.Context, f func() error) {
+			go func(cx context.Context, f func() error) {
 				ticker := time.NewTicker(time.Second)
 
 				for {
 					select {
 					case <-ticker.C:
 						_ = f()
-					case <-ctx.Done():
+					case <-cx.Done():
 						ticker.Stop()
 						return
 					}
@@ -192,12 +192,12 @@ func (r *EvmRegistry) Start(ctx context.Context) error {
 
 		// run process to process logs from log channel
 		{
-			go func(ctx context.Context, ch chan logpoller.Log, f func(logpoller.Log) error) {
+			go func(cx context.Context, ch chan logpoller.Log, f func(logpoller.Log) error) {
 				for {
 					select {
 					case log := <-ch:
 						_ = f(log)
-					case <-ctx.Done():
+					case <-cx.Done():
 						return
 					}
 				}
@@ -341,9 +341,7 @@ func (r *EvmRegistry) processUpkeepStateLog(log logpoller.Log) error {
 }
 
 func (r *EvmRegistry) removeFromActive(id *big.Int) {
-	if _, ok := r.active[id.Int64()]; ok {
-		delete(r.active, id.Int64())
-	}
+	delete(r.active, id.Int64())
 }
 
 func (r *EvmRegistry) addToActive(id *big.Int) {
@@ -360,17 +358,6 @@ func (r *EvmRegistry) buildCallOpts(ctx context.Context, block *big.Int) (*bind.
 	}
 
 	if block == nil || block.Int64() == 0 {
-		if r.LatestBlock() == 0 {
-			// fetch the current block number so batched GetActiveUpkeepKeys calls can be performed on the same block
-			bl, err := r.poller.LatestBlock()
-			if err != nil {
-				return nil, fmt.Errorf("%w: %s: EVM failed to fetch block header", err, ErrRegistryCallFailure)
-			}
-
-			block = new(big.Int).SetInt64(bl)
-		} else {
-			block = new(big.Int).SetInt64(r.LatestBlock())
-		}
 		opts.Pending = true
 	} else if block.Int64() == r.LatestBlock() {
 		opts.Pending = true
