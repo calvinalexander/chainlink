@@ -19,7 +19,7 @@ type ORM interface {
 
 	SetResult(requestID RequestID, runID int64, computationResult []byte, readyAt time.Time, qopts ...pg.QOpt) error
 	SetError(requestID RequestID, runID int64, errorType ErrType, computationError []byte, readyAt time.Time, qopts ...pg.QOpt) error
-	SetTransmitted(requestID RequestID, transmittedResult []byte, transmittedError []byte, qopts ...pg.QOpt) error
+	SetInTransmission(requestID RequestID, transmittedResult []byte, transmittedError []byte, qopts ...pg.QOpt) error
 	SetConfirmed(requestID RequestID, qopts ...pg.QOpt) error
 
 	TimeoutExpiredResults(cutoff time.Time, limit uint32, qopts ...pg.QOpt) ([]RequestID, error)
@@ -98,8 +98,8 @@ func (o orm) SetError(requestID RequestID, runID int64, errorType ErrType, compu
 	return err
 }
 
-func (o orm) SetTransmitted(requestID RequestID, transmittedResult []byte, transmittedError []byte, qopts ...pg.QOpt) error {
-	newState := TRANSMITTED
+func (o orm) SetInTransmission(requestID RequestID, transmittedResult []byte, transmittedError []byte, qopts ...pg.QOpt) error {
+	newState := IN_TRANSMISSION
 	err := o.setWithStateTransitionCheck(requestID, newState, func(tx pg.Queryer) error {
 		stmt := `
 			UPDATE ocr2dr_requests
@@ -124,22 +124,22 @@ func (o orm) SetConfirmed(requestID RequestID, qopts ...pg.QOpt) error {
 
 func (o orm) TimeoutExpiredResults(cutoff time.Time, limit uint32, qopts ...pg.QOpt) ([]RequestID, error) {
 	var ids []RequestID
-	prevStates := []RequestState{IN_PROGRESS, RESULT_READY}
+	allowedPrevStates := []RequestState{IN_PROGRESS, RESULT_READY, IN_TRANSMISSION}
 	nextState := TIMED_OUT
-	if err := CheckStateTransition(prevStates[0], nextState); err != nil {
-		return ids, err
-	}
-	if err := CheckStateTransition(prevStates[1], nextState); err != nil {
-		return ids, err
+	for _, state := range allowedPrevStates {
+		// sanity checks
+		if err := CheckStateTransition(state, nextState); err != nil {
+			return ids, err
+		}
 	}
 	err := o.q.WithOpts(qopts...).Transaction(func(tx pg.Queryer) error {
 		selectStmt := `
 			SELECT request_id
 			FROM ocr2dr_requests
-			WHERE (state=$1 OR state=$2) AND contract_address=$3 AND received_at < ($4)
+			WHERE (state=$1 OR state=$2 OR state=$3) AND contract_address=$4 AND received_at < ($5)
 			ORDER BY received_at
-			LIMIT $5;`
-		if err2 := tx.Select(&ids, selectStmt, prevStates[0], prevStates[1], o.contractAddress, cutoff, limit); err2 != nil {
+			LIMIT $6;`
+		if err2 := tx.Select(&ids, selectStmt, allowedPrevStates[0], allowedPrevStates[1], allowedPrevStates[2], o.contractAddress, cutoff, limit); err2 != nil {
 			return err2
 		}
 		if len(ids) == 0 {

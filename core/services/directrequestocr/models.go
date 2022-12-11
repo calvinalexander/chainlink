@@ -42,9 +42,9 @@ const (
 	// It won't be included in OCR2 reporting rounds any more.
 	TIMED_OUT
 
-	// TRANSMITTED request is one that passed through ShouldTransmitAcceptedReport phase of OCR2 reporting.
+	// IN_TRANSMISSION request is one that passed through ShouldAcceptFinalizedReport phase of OCR2 reporting.
 	// From here, it can only transition to CONFIRMED state, upon receiving an on-chain confirmation from the oracle contract.
-	TRANSMITTED
+	IN_TRANSMISSION
 
 	// CONFIRMED state indicates that we received an on-chain confirmation event
 	// (with or without this node's participation in an earlier OCR round).
@@ -54,19 +54,19 @@ const (
 )
 
 /*
- *    +-----------+
- * +--+IN_PROGRESS+----------------+
- * |  +-----+-----+                |
- * |        |                      |
- * |        v                      v
- * |  +------------+          +---------+
- * |  |RESULT_READY+--------->|TIMED_OUT|
- * |  +-----+------+          +---------+
- * |        |
- * |        v
- * |  +-----------+
- * +->|TRANSMITTED|
- *    +-----------+
+ *       +-----------+
+ *  +----+IN_PROGRESS+----------------+
+ *  |    +-----+-----+                |
+ *  |          |                      |
+ *  |          v                      v
+ *  |   +------------+           +---------+
+ *  |   |RESULT_READY+---------->|TIMED_OUT|
+ *  |   +------+-----+           +---------+
+ *  |          |                      ^
+ *  |          v                      |
+ *  |  +---------------+              |
+ *  +->|IN_TRANSMISSION|--------------+
+ *     +---------------+
  *
  *                     \   /
  *                       |
@@ -82,32 +82,32 @@ func CheckStateTransition(prev RequestState, next RequestState) error {
 	}
 	transitions := map[RequestState]map[RequestState]error{
 		IN_PROGRESS: {
-			IN_PROGRESS:  sameStateError,
-			RESULT_READY: nil, // computation completed (either successfully or not)
-			TIMED_OUT:    nil, // timing out a request in progress - what happened to the computation?
-			TRANSMITTED:  nil, // transmitted a report without this node's participation in OCR round
-			CONFIRMED:    nil, // received an on-chain result confirmation
+			IN_PROGRESS:     sameStateError,
+			RESULT_READY:    nil, // computation completed (either successfully or not)
+			TIMED_OUT:       nil, // timing out a request in progress - what happened to the computation?
+			IN_TRANSMISSION: nil, // transmitted a report without this node's participation in OCR round
+			CONFIRMED:       nil, // received an on-chain result confirmation
 		},
 		RESULT_READY: {
-			IN_PROGRESS:  errors.New("cannot go back from RESULT_READY to IN_PROGRESS"),
-			RESULT_READY: sameStateError,
-			TIMED_OUT:    nil, // timing out a request - why was it never picked up by OCR reporting?
-			TRANSMITTED:  nil, // transmitted via OCR as expected
-			CONFIRMED:    nil, // received an on-chain result confirmation
+			IN_PROGRESS:     errors.New("cannot go back from RESULT_READY to IN_PROGRESS"),
+			RESULT_READY:    sameStateError,
+			TIMED_OUT:       nil, // timing out a request - why was it never picked up by OCR reporting?
+			IN_TRANSMISSION: nil, // transmitted via OCR as expected
+			CONFIRMED:       nil, // received an on-chain result confirmation
 		},
 		TIMED_OUT: {
-			IN_PROGRESS:  errors.New("cannot go back from TIMED_OUT to IN_PROGRESS"),
-			RESULT_READY: errors.New("cannot go back from TIMED_OUT to RESULT_READY"),
-			TIMED_OUT:    sameStateError,
-			TRANSMITTED:  errors.New("result already timed out but we're trying to transmit it (maybe a harmless race with the timer?)"),
-			CONFIRMED:    nil, // received an on-chain result confirmation
+			IN_PROGRESS:     errors.New("cannot go back from TIMED_OUT to IN_PROGRESS"),
+			RESULT_READY:    errors.New("cannot go back from TIMED_OUT to RESULT_READY"),
+			TIMED_OUT:       sameStateError,
+			IN_TRANSMISSION: errors.New("result already timed out but we're trying to transmit it (maybe a harmless race with the timer?)"),
+			CONFIRMED:       nil, // received an on-chain result confirmation
 		},
-		TRANSMITTED: {
-			IN_PROGRESS:  errors.New("cannot go back from TRANSMITTED to IN_PROGRESS"),
-			RESULT_READY: errors.New("cannot go back from TRANSMITTED to RESULT_READY"),
-			TIMED_OUT:    errors.New("result already transmitted, no need to time it out (maybe a harmless race with the timer?)"),
-			TRANSMITTED:  sameStateError,
-			CONFIRMED:    nil, // received an on-chain result confirmation
+		IN_TRANSMISSION: {
+			IN_PROGRESS:     errors.New("cannot go back from IN_TRANSMISSION to IN_PROGRESS"),
+			RESULT_READY:    errors.New("cannot go back from IN_TRANSMISSION to RESULT_READY"),
+			TIMED_OUT:       nil, // timed out while in transmission - no reason to attempt sending it any more
+			IN_TRANSMISSION: sameStateError,
+			CONFIRMED:       nil, // received an on-chain result confirmation
 		},
 		// CONFIRMED handled earlier
 	}
@@ -156,8 +156,8 @@ func (s RequestState) String() string {
 		return "ResultReady"
 	case TIMED_OUT:
 		return "TimedOut"
-	case TRANSMITTED:
-		return "Transmitted"
+	case IN_TRANSMISSION:
+		return "InTransmission"
 	case CONFIRMED:
 		return "Confirmed"
 	}
