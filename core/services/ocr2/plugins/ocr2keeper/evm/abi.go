@@ -1,12 +1,12 @@
 package evm
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/pkg/errors"
 	"github.com/smartcontractkit/ocr2keepers/pkg/types"
 )
 
@@ -17,7 +17,7 @@ type evmRegistryPackerV2_0 struct {
 func (rp *evmRegistryPackerV2_0) UnpackCheckResult(key types.UpkeepKey, raw string) (types.UpkeepResult, error) {
 	out, err := rp.abi.Methods["checkUpkeep"].Outputs.UnpackValues(hexutil.MustDecode(raw))
 	if err != nil {
-		return types.UpkeepResult{}, errors.Wrapf(err, "unpack checkUpkeep return: %s", raw)
+		return types.UpkeepResult{}, fmt.Errorf("%w: unpack checkUpkeep return: %s", err, raw)
 	}
 
 	result := types.UpkeepResult{
@@ -47,6 +47,9 @@ func (rp *evmRegistryPackerV2_0) UnpackCheckResult(key types.UpkeepKey, raw stri
 		result.PerformData = ret0.Result.PerformData
 	}
 
+	// TODO: make an eth call to get this data
+	result.ExecuteGas = 5_000_000
+
 	return result, nil
 }
 
@@ -54,7 +57,7 @@ func (rp *evmRegistryPackerV2_0) UnpackPerformResult(raw string) (bool, error) {
 	out, err := rp.abi.Methods["simulatePerformUpkeep"].
 		Outputs.UnpackValues(hexutil.MustDecode(raw))
 	if err != nil {
-		return false, errors.Wrapf(err, "unpack simulatePerformUpkeep return: %s", raw)
+		return false, fmt.Errorf("%w: unpack simulatePerformUpkeep return: %s", err, raw)
 	}
 
 	return *abi.ConvertType(out[0], new(bool)).(*bool), nil

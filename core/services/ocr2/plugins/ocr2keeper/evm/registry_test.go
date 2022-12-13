@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/smartcontractkit/chainlink/core/chains/evm/logpoller"
-	"github.com/smartcontractkit/chainlink/core/chains/evm/logpoller/mocks"
-	"github.com/smartcontractkit/chainlink/core/utils"
 	"github.com/smartcontractkit/ocr2keepers/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/smartcontractkit/chainlink/core/chains/evm/logpoller"
+	"github.com/smartcontractkit/chainlink/core/chains/evm/logpoller/mocks"
+	"github.com/smartcontractkit/chainlink/core/utils"
 )
 
 func TestGetActiveUpkeepKeys(t *testing.T) {

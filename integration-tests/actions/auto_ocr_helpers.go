@@ -46,6 +46,8 @@ func BuildAutoOCR2ConfigVars(chainlinkNodes []*client.Chainlink, registryConfig 
 			TargetInRounds:       1,
 			PerformLockoutWindow: 100 * 12 * 1000, // ~100 block lockout (on goerli)
 			UniqueReports:        false,           // set quorum requirements
+			GasLimitPerReport:    20_000_000,
+			GasOverheadPerUpkeep: 300_000,
 		}.Encode(), // reportingPluginConfig []byte,
 		20*time.Millisecond,   // maxDurationQuery time.Duration,
 		1600*time.Millisecond, // maxDurationObservation time.Duration,
