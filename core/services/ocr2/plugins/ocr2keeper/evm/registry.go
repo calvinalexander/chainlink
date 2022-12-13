@@ -130,9 +130,9 @@ func (r *EvmRegistry) GetActiveUpkeepKeys(context.Context, types.BlockKey) ([]ty
 		return nil, fmt.Errorf("%w: service probably not yet started", ErrHeadNotAvailable)
 	}
 
+	r.mu.RLock()
 	keys := make([]types.UpkeepKey, len(r.active))
 	var i int
-	r.mu.RLock()
 	for _, value := range r.active {
 		keys[i] = blockAndIdToKey(big.NewInt(r.LatestBlock()), value.ID)
 		i++
