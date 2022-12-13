@@ -7,12 +7,12 @@ import (
 	"math/big"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/pkg/errors"
 
 	"github.com/smartcontractkit/chainlink/core/logger"
 	"github.com/smartcontractkit/chainlink/core/utils"
@@ -51,6 +51,10 @@ type BatchSender interface {
 // It must a http(s) url
 type sendOnlyNode struct {
 	utils.StartStopOnce
+
+	stateMu sync.RWMutex // protects state* fields
+	state   SendOnlyNodeState
+
 	uri         url.URL
 	batchSender BatchSender
 	sender      TxSender
@@ -59,6 +63,7 @@ type sendOnlyNode struct {
 	name        string
 	chainID     *big.Int
 	chStop      chan struct{}
+	wg          sync.WaitGroup
 }
 
 // NewSendOnlyNode returns a new sendonly node
@@ -76,40 +81,63 @@ func NewSendOnlyNode(lggr logger.Logger, httpuri url.URL, name string, chainID *
 
 func (s *sendOnlyNode) Start(ctx context.Context) error {
 	return s.StartOnce(s.name, func() error {
-		return s.start(ctx)
+		s.start(ctx)
+		return nil
 	})
 }
 
 // Start setups up and verifies the sendonly node
 // Should only be called once in a node's lifecycle
-// TODO: Failures to dial should put it into a retry loop
-// https://app.shortcut.com/chainlinklabs/story/28182/eth-node-failover-consider-introducing-a-state-for-sendonly-nodes
-func (s *sendOnlyNode) start(startCtx context.Context) error {
+func (s *sendOnlyNode) start(startCtx context.Context) {
+	defer s.wg.Done()
+
+	if s.state != SendOnlyNodeStateUndialed {
+		panic(fmt.Sprintf("cannot dial node with state %v", s.state))
+	}
+
+	// TODO: Backoff with exit on close
 	s.log.Debugw("evmclient.Client#Dial(...)")
 	if s.dialed {
 		panic("evmclient.Client.Dial(...) should only be called once during the node's lifetime.")
 	}
 
+	// DialHTTP doesn't actually make any external HTTP calls
+	// It can only return error if the URL is malformed. No amount of retries
+	// will change this result.
 	rpc, err := rpc.DialHTTP(s.uri.String())
 	if err != nil {
-		return errors.Wrapf(err, "failed to dial secondary client: %v", s.uri.Redacted())
+		// TODO: prom metric?
+		s.log.Errorw("Dial failed: EVM SendOnly Node is invalid", "err", err)
+		s.setState(SendOnlyNodeStateUnusable)
 	}
 	s.dialed = true
 	geth := ethclient.NewClient(rpc)
 	s.SetEthClient(rpc, geth)
 
-	if id, err := s.getChainID(startCtx); err != nil {
-		s.log.Warnw("sendonly rpc ChainID verification skipped", "err", err)
-	} else if id.Cmp(s.chainID) != 0 {
-		return errors.Errorf(
-			"sendonly rpc ChainID doesn't match local chain ID: RPC ID=%s, local ID=%s, node name=%s",
-			id.String(),
-			s.chainID.String(),
-			s.name,
-		)
+	verifyCtx, verifyCancel := s.makeQueryCtx(startCtx)
+	defer verifyCancel()
+
+	chainID, err := s.sender.ChainID(verifyCtx)
+	if err != nil || chainID.Cmp(s.chainID) != 0 {
+		// TODO: prom metric?
+		if err != nil {
+			s.log.Errorw(fmt.Sprintf("Verify failed: %v", err), "err", err)
+		} else {
+			s.log.Errorf(
+				"sendonly rpc ChainID doesn't match local chain ID: RPC ID=%s, local ID=%s, node name=%s",
+				chainID.String(),
+				s.chainID.String(),
+				s.name,
+			)
+			s.setState(SendOnlyNodeStateInvalidChainID)
+		}
+		s.wg.Add(1)
+		go s.verifyLoop()
+		return
 	}
 
-	return nil
+	s.setState(SendOnlyNodeStateAlive)
+	s.log.Infow("Sendonly RPC Node is online", "nodeState", s.state)
 }
 
 func (s *sendOnlyNode) SetEthClient(newBatchSender BatchSender, newSender TxSender) {
@@ -124,6 +152,8 @@ func (s *sendOnlyNode) SetEthClient(newBatchSender BatchSender, newSender TxSend
 func (s *sendOnlyNode) Close() error {
 	return s.StopOnce(s.name, func() error {
 		close(s.chStop)
+		s.wg.Wait()
+		s.setState(SendOnlyNodeStateClosed)
 		return nil
 	})
 }
@@ -148,6 +178,9 @@ func (s *sendOnlyNode) logTiming(lggr logger.Logger, duration time.Duration, err
 		"err", err,
 	)
 }
+
+// TODO: Add state checks to things that call these methods?
+// TODO: Show state in UI?
 
 func (s *sendOnlyNode) SendTransaction(parentCtx context.Context, tx *types.Transaction) (err error) {
 	defer func(start time.Time) {
@@ -179,20 +212,6 @@ func (s *sendOnlyNode) wrap(err error) error {
 
 func (s *sendOnlyNode) String() string {
 	return fmt.Sprintf("(secondary)%s:%s", s.name, s.uri.Redacted())
-}
-
-// getChainID returns the chainID and converts zero/empty values to errors.
-func (s *sendOnlyNode) getChainID(parentCtx context.Context) (*big.Int, error) {
-	ctx, cancel := s.makeQueryCtx(parentCtx)
-	defer cancel()
-
-	chainID, err := s.sender.ChainID(ctx)
-	if err != nil {
-		return nil, err
-	} else if chainID.Cmp(big.NewInt(0)) == 0 {
-		return nil, errors.New("zero/empty value")
-	}
-	return chainID, nil
 }
 
 // makeQueryCtx returns a context that cancels if:

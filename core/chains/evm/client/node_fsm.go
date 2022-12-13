@@ -91,7 +91,6 @@ func init() {
 	for s := NodeState(0); s < nodeStateLen; s++ {
 		allNodeStates = append(allNodeStates, s)
 	}
-
 }
 
 // FSM methods
