@@ -97,6 +97,10 @@ type checkResult struct {
 	err error
 }
 
+type activeUpkeep struct {
+	ID *big.Int
+}
+
 type EvmRegistry struct {
 	HeadWatcher
 	sync          utils.StartStopOnce
