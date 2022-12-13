@@ -1,5 +1,6 @@
 package ocr2keeper_test
 
+/*
 import (
 	"context"
 	"encoding/hex"
@@ -271,10 +272,10 @@ func TestIntegration_KeeperPluginBasic(t *testing.T) {
 		p2pv2Bootstrappers = [
 		  "%s"
 		]
-		
+
 		[relayConfig]
 		chainID = 1337
-		
+
 		[pluginConfig]
 		maxServiceWorkers = 100
 		`, i, registry.Address(), node.KeyBundle.ID(), node.Transmitter, fmt.Sprintf("%s@127.0.0.1:%d", bootstrapPeerID, bootstrapNodePort)))
@@ -527,10 +528,10 @@ func TestIntegration_KeeperPluginForwarderEnabled(t *testing.T) {
 		  "%s"
 		]
 		forwardingAllowed = true
-		
+
 		[relayConfig]
 		chainID = 1337
-		
+
 		[pluginConfig]
 		`, i, registry.Address(), node.KeyBundle.ID(), node.Transmitter, fmt.Sprintf("%s@127.0.0.1:%d", bootstrapPeerID, bootstrapNodePort)))
 	}
@@ -661,3 +662,4 @@ func TestIntegration_KeeperPluginForwarderEnabled(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+*/
