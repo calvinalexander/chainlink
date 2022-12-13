@@ -104,21 +104,21 @@ type activeUpkeep struct {
 type EvmRegistry struct {
 	HeadWatcher
 	sync          utils.StartStopOnce
-	mu            sync.RWMutex
 	poller        logpoller.LogPoller
-	filterID      int
-	lastPollBlock int64
 	addr          common.Address
 	client        client.Client
 	registry      *keeper_registry_wrapper2_0.KeeperRegistry
 	abi           abi.ABI
+	packer        *evmRegistryPackerV2_0
+	chLog         chan logpoller.Log
+	reInit        *time.Timer
+	mu            sync.RWMutex
+	filterID      int
+	lastPollBlock int64
 	ctx           context.Context
 	cancel        context.CancelFunc
 	active        map[int64]activeUpkeep
-	packer        *evmRegistryPackerV2_0
 	headFunc      func(types.BlockKey)
-	chLog         chan logpoller.Log
-	reInit        *time.Timer
 	runState      int
 	runError      error
 }
@@ -170,6 +170,8 @@ func (r *EvmRegistry) IdentifierFromKey(key types.UpkeepKey) (types.UpkeepIdenti
 
 func (r *EvmRegistry) Start(ctx context.Context) error {
 	return r.sync.StartOnce("AutomationRegistry", func() error {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		r.ctx, r.cancel = context.WithCancel(context.Background())
 		r.reInit = time.NewTimer(reInitializationDelay)
 
@@ -232,6 +234,8 @@ func (r *EvmRegistry) Start(ctx context.Context) error {
 
 func (r *EvmRegistry) Close() error {
 	return r.sync.StopOnce("AutomationRegistry", func() error {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		r.cancel()
 		r.runState = 0
 		r.runError = nil
@@ -243,6 +247,9 @@ func (r *EvmRegistry) Close() error {
 }
 
 func (r *EvmRegistry) Ready() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	if r.runState == 1 {
 		return nil
 	}
@@ -250,6 +257,9 @@ func (r *EvmRegistry) Ready() error {
 }
 
 func (r *EvmRegistry) Healthy() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	if r.runState > 1 {
 		return fmt.Errorf("failed run state: %w", r.runError)
 	}
@@ -333,7 +343,9 @@ func (r *EvmRegistry) registerEvents(addr common.Address) error {
 		Addresses: []common.Address{addr},
 	})
 	if err != nil {
+		r.mu.Lock()
 		r.filterID = filterID
+		r.mu.Unlock()
 	}
 	return err
 }
@@ -371,10 +383,16 @@ func (r *EvmRegistry) processUpkeepStateLog(l logpoller.Log) error {
 }
 
 func (r *EvmRegistry) removeFromActive(id *big.Int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	delete(r.active, id.Int64())
 }
 
 func (r *EvmRegistry) addToActive(id *big.Int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if _, ok := r.active[id.Int64()]; !ok {
 		r.active[id.Int64()] = activeUpkeep{
 			ID: id,
